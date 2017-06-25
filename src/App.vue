@@ -1,25 +1,68 @@
 <template>
-  <div>
-    <button @click="handleSignInClick" >Sign In </button>
-    <button @click="handleSignOutClick">Sign Out</button>
-    <div v-show="loggedIn">{{ displayName }}</div>
-    <hr>
-    <button @click="listFilesFromDrive">List From Drive</button>
-    <hr>
-    <template v-for="file in driveFiles">
-      <label>{{ file.id }}</label>
-      <button>{{ file.name }}</button>
-    </template>
-    <hr>
-    <button @click="insertFileIntoAppData">Add File To Drive</button>
-    <hr>
-    <div class="form-group">
-      <label>File Id: </label>
-      <input class="form-control" type="text" v-model="fileid">
-      <button @click="getFileFromDrive">Get File Id From Drive</button>
-      <button @click="deleteFileFromDrive">Delete File Id From Drive</button>
-    </div>
+  <div class="container">
+    <div class="row">
+      <div class="col-xs-12">
+        <h2>Authentication</h2>
+        <button @click="handleSignInClick" >Sign In </button>
+        <button @click="handleSignOutClick">Sign Out</button>
+        <div v-show="loggedIn">Hello, {{ displayName }}</div>
+        
+        <hr>
 
+        <h2>Appdata Files created by this Application</h2>
+        <table class="table table-bordered table-hover">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>File Name</th>
+              <th>File Id</th>
+              <th>Operations</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template v-for="(file, index) in driveFiles">
+              <tr>
+                <th scope="row">{{ index }}</th>
+                <td>{{ file.name }}</td>
+                <td>{{ file.id }}</td>
+                <td>
+                  <i class="glyphicon glyphicon-remove" v-on:click="deleteFileFromDrive(file.id)">Delete</i>
+                  <i class="glyphicon glyphicon-pencil" v-on:click="setEditData(file.id, file.name)">Edit</i>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+
+        <hr>
+        
+        <div class="form-group">
+          <h2>Edit</h2>
+          <div class="input-group">
+            <span class="input-group-addon" id="basic-addon1">File Name</span>
+            <input type="text" class="form-control" placeholder="Google Drive File Name" aria-describedby="basic-addon1" v-model="edit.name" readonly>
+          </div>
+          <div class="input-group">
+            <span class="input-group-addon" id="basic-addon1">File Id</span>
+            <input type="text" class="form-control" placeholder="Google Drive File Id" aria-describedby="basic-addon1" :value="edit.id" readonly>
+          </div>
+          <textarea class="form-control" rows="3" v-model="edit.content" placeholder="Content"></textarea>
+          <button v-on:click="updateFile(edit)">Update File</button>
+        </div>
+
+        <hr>
+        <div class="form-group">
+          <h2>Create a New File</h2>
+          <div class="input-group">
+            <span class="input-group-addon" id="basic-addon1">File Name</span>
+            <input type="text" class="form-control" placeholder="Google Drive File Name" aria-describedby="basic-addon1" v-model="newfile.name">
+          </div>
+          <br>
+          <textarea class="form-control" rows="3" v-model="newfile.content" placeholder="Content"></textarea>
+          <button v-on:click="updateFile(newfile)">Create File</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -30,16 +73,22 @@ export default {
     return {
       loggedIn: false,
       displayName : "",
-      fileid : "",
       driveFiles: [],
+      edit: {
+        id: "",
+        name: "",
+        content: ""
+      },
+      newfile: {
+        name: "",
+        content: ""
+      }
     }
   },
   created() {
     console.log('App.vue created');
     console.log('App.vue created - Loading GAPI Client and Auth2');
     gapi.load('client:auth2', this.initializeGAPI);
-    // console.log('App.vue created - Loading GAPI Drive');
-    // gapi.load('drive', 'v2', this.initializeDrive);
   },
   methods: {
     initializeGAPI() {
@@ -49,13 +98,13 @@ export default {
         gapi.client.init({
             apiKey: 'AIzaSyCkkcuOuaHe5InK-kaC4WMeGCQxrzku9ZE',
             discoveryDocs: [
-              "https://www.googleapis.com/discovery/v1/apis/people/v1/rest", 
-              "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"
+              "https://www.googleapis.com/discovery/v1/apis/people/v1/rest", // loads people api into gapi.client.people
+              "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest" // loads drive api into gapi.client.drive
             ],
             clientId: '776376867893-ef7btf6n7m5rh9dt5nbvmq0c7emouab0.apps.googleusercontent.com',
-            scope: 'https://www.googleapis.com/auth/drive.appdata ' +
-                    'https://www.googleapis.com/auth/drive.file ' +
-                    'https://www.googleapis.com/auth/userinfo.profile ',
+            scope: 'https://www.googleapis.com/auth/drive.appdata ' + // allows access to creating application specific files
+                    'https://www.googleapis.com/auth/drive.file ' + // Modify files created with appdata scope
+                    'https://www.googleapis.com/auth/userinfo.profile ',  // Name, Email, Photo
         }).then(this.respondToClientInit);
 
         console.log('App.vue methods initializeGAPI complete');
@@ -67,13 +116,8 @@ export default {
       // Handle the initial sign-in state.
       this.updateSigninStatus(gapi.auth2.getAuthInstance().isSignedIn.get());
 
-      console.log('App.vue methods initializeDrive');
-      console.log(gapi.client.drive);
-      console.log('App.vue methods initializeDrive drive initialized?');
-
-      console.log('App.vue methods initializeDrive Post Initialized Playground Start');
+      // Initial set up for files table
       this.listFilesFromDrive();
-      console.log('App.vue methods initializeDrive Post Initialized Playground End');
     },
     updateSigninStatus(isSignedIn) {
       console.log('App.vue updateSigninStatus isSignedIn: ' + isSignedIn);
@@ -99,30 +143,16 @@ export default {
       // Make an API call to the People API, and print the user's given name.
       gapi.client.people.people.get({
         'resourceName': 'people/me',
-        'personFields': 'photos,metadata,names',
+        'personFields': 'photos,metadata,names,emailAddresses',
       }).then(this.peopleGetResponse);
     },
     peopleGetResponse(response) {
       console.log('makeApiCall response result')
       console.log(response.result);
-      this.displayName = response.result.names[0].givenName;
-      console.log('Hello, ' + response.result.names[0].givenName);
-      console.log('Picture, ' + response.result.photos[0].url);
-      console.log('ID, ' + response.result.metadata.sources[0].id);
+      this.displayName = response.result.names[0].displayName + " - " + response.result.emailAddresses[0].value;
     },
-
 
     // DRIVE FUNCTIONS
-    insertFileIntoAppData() {
-      var file = {
-        // id: '13DROYKbVba3QjG4dwJ-6OqpHNKgg5GR6D8_P1R6Bn-hj',
-        name: "simple-upload-test-1234.txt",
-        content: "{'meow':'rawr'}",
-      };
-      this.saveFile(file, function(arg) {
-        console.log(arg);
-      });
-    },
     saveFile(file, done) {
       function addContent(fileId) {
         return gapi.client.request({
@@ -143,6 +173,7 @@ export default {
           done(resp.result);
         })
       } else { //create and update
+        // TODO: Handle Reading from different folders
         gapi.client.drive.files.create({
           name: file.name,
           parents: [ 'appDataFolder'],
@@ -155,6 +186,7 @@ export default {
       }
     },
     listFilesFromDrive() {
+      // TODO: Handle Reading from different folders
       console.log('App.vue listFilesFromDrive');
       var request = gapi.client.drive.files.list({
         spaces: 'appDataFolder',
@@ -163,32 +195,41 @@ export default {
       }).execute(this.listFilesFromDriveResponse);
     },
     listFilesFromDriveResponse(response) {
-      console.log('App.vue listFilesFromDrive list response');
-      console.log('listing files from drive...');
+      console.log('App.vue listFilesFromDriveResponse');
       console.log(response);
       this.driveFiles = response.files;
-      response.files.forEach(function(file) {
-        console.log('Found file: ', file.name, file.id);
-      });
     },
-    getFileFromDrive() {
+    getFileFromDrive(file_id, callback) {
       gapi.client.drive.files.get({
-        fileId: this.fileid,
+        fileId: file_id,
         alt: 'media'
-      }).then(function (response) {
-        console.log('App.vue getFileFromDrive get response');
-        console.log(response);
-        return response;
-      });
+      }).then(callback);
     },
-    deleteFileFromDrive() {
+    deleteFileFromDrive(file_id) {
       gapi.client.drive.files.delete({
-        fileId: this.fileid,
-      }).then(function (response) {
-        console.log('App.vue deleteFileFromDrive delete response');
-        console.log(response);
-        return response;
+        fileId: file_id,
+      }).then(this.deleteFileFromDriveResponse);
+    },
+    deleteFileFromDriveResponse(response) {
+      console.log('App.vue deleteFileFromDrive delete response');
+      console.log(response);
+      this.listFilesFromDrive();
+    },
+    setEditData(file_id, file_name) {
+      this.edit.name = file_name;
+      this.edit.id = file_id;
+      this.edit.content = "Loading..."
+      this.getFileFromDrive(file_id, this.setEditDataGetResponseHandler);
+    },
+    setEditDataGetResponseHandler(response) {
+      console.log(response.body);
+      this.edit.content = response.body;
+    },
+    updateFile(data) {
+      this.saveFile(data, function(response) {
+        console.log("Editted Data Updated!");
       });
+      this.listFilesFromDrive();
     }
   }
 }
